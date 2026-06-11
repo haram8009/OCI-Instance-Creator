@@ -1,0 +1,9 @@
+.env
+oci/*
+!oci/.gitkeep
+!oci/config.example
+logs/*
+!logs/.gitkeep
+.DS_Store
+.idea/
+.vscode/

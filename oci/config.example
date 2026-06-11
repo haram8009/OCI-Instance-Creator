@@ -1,0 +1,6 @@
+[DEFAULT]
+user=ocid1.user.oc1..example
+fingerprint=00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00
+tenancy=ocid1.tenancy.oc1..example
+region=ap-osaka-1
+key_file=/root/.oci/oci_api_key.pem
