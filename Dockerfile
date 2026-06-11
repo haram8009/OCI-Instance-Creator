@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12.10-slim-bookworm
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -7,7 +7,7 @@ RUN apt-get update \
         jq \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir oci-cli
+RUN pip install --no-cache-dir oci-cli==3.86.0
 
 WORKDIR /app
 
