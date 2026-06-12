@@ -1,4 +1,4 @@
-# OCI Instance Retry
+# OCI Instance Creator
 
 Docker Desktop에서 OCI Resource Manager Stack Apply를 반복 실행하고, 시작부터 성공, 실패, 중단까지 모든 주요 상태를 Discord webhook으로 알립니다.
 
@@ -218,13 +218,16 @@ logs/
         │       ├── summary.json
         │       ├── oci-create-apply-job.out.json
         │       ├── oci-create-apply-job.err.log
-        │       └── oci-job.log
+        │       ├── oci-job.log
+        │       └── oci-job.normalized.log
         └── discord/
             ├── *.json
             └── unsent/
 ```
 
 Discord에 보낸 payload도 run별로 저장합니다. 전송 실패 payload는 `discord/unsent/` 아래에 보존합니다.
+
+Discord 알림에는 전체 job log를 그대로 넣지 않고 핵심 오류 요약만 넣습니다. 전체 원문은 `oci-job.log`, 줄바꿈을 정리한 로그는 `oci-job.normalized.log`에 보존합니다.
 
 ## 검증
 

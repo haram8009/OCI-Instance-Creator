@@ -46,7 +46,7 @@ cat > "$FAKE_BIN/oci" <<'FAKE_OCI'
 set -Eeuo pipefail
 
 if [ "$1 $2 $3" = "resource-manager job get-job-logs-content" ]; then
-  printf 'fake terraform log tail\n'
+  jq -n --arg data 'Terraform v1.5.7\non: 8.18.0, released on 2026-06-10.\n2026/06/11 09:42:03[TERRAFORM_CONSOLE] [INFO] Service: Core Instance\n2026/06/11 09:42:03[TERRAFORM_CONSOLE] [INFO] Operation Name: LaunchInstance\n2026/06/11 09:42:03[TERRAFORM_CONSOLE] [INFO] OPC request ID: fake-request-id\n2026/06/11 09:42:03[TERRAFORM_CONSOLE] [INFO] Error: Out of host capacity.\n2026/06/11 09:42:03[TERRAFORM_CONSOLE] [INFO] with oci_core_instance.generated_oci_core_instance,\n2026/06/11 09:42:03[TERRAFORM_CONSOLE] [INFO] on main.tf line 3, in resource "oci_core_instance" "generated_oci_core_instance":' '{data: $data}'
   exit 0
 fi
 
@@ -80,6 +80,8 @@ run_case() {
   local scenario="$1"
   local expected_exit="$2"
   local expected_title="$3"
+  local expected_description="$4"
+  local expected_stop_description="${5:-}"
   local case_dir="$TMP_DIR/$scenario"
 
   mkdir -p "$case_dir/logs" "$case_dir/discord"
@@ -113,14 +115,48 @@ run_case() {
     return 1
   fi
 
+  if ! jq -r \
+      --arg title "$expected_title" \
+      'select(.embeds[0].title == $title) | .embeds[0].description' \
+      "$case_dir"/discord/payload-*.json | grep -Fqx "$expected_description"; then
+    echo "Missing Discord description '$expected_description' for $scenario" >&2
+    return 1
+  fi
+
+  if [ "$scenario" != "failed" ]; then
+    if ! jq -r \
+        --arg title "$expected_title" \
+        'select(.embeds[0].title == $title) | (.content // "")' \
+        "$case_dir"/discord/payload-*.json | grep -Fxq '@here'; then
+      echo "Missing @here mention for '$expected_title' in $scenario" >&2
+      return 1
+    fi
+  fi
+
+  if [ -n "$expected_stop_description" ]; then
+    if ! jq -r \
+        'select(.embeds[0].title == "🛑 OCI A1 retry stopped") | .embeds[0].description' \
+        "$case_dir"/discord/payload-*.json | grep -Fqx "$expected_stop_description"; then
+      echo "Missing max-attempts description '$expected_stop_description' for $scenario" >&2
+      return 1
+    fi
+
+    if ! jq -r \
+        'select(.embeds[0].title == "🛑 OCI A1 retry stopped") | (.content // "")' \
+        "$case_dir"/discord/payload-*.json | grep -Fxq '@here'; then
+      echo "Missing @here mention for max-attempts stop in $scenario" >&2
+      return 1
+    fi
+  fi
+
   if [ ! -s "$case_dir/logs/runs/test-$scenario/retry.log" ]; then
     echo "Missing preserved retry log for $scenario" >&2
     return 1
   fi
 }
 
-run_case success 0 "OCI Stack Apply succeeded"
-run_case failed 1 "OCI Stack Apply did not succeed"
-run_case command_failed 1 "OCI apply command failed"
+run_case success 0 "✅ OCI Stack Apply succeeded" "Apply succeeded."
+run_case failed 1 "❌ OCI Stack Apply did not succeed" "Error: Out of host capacity." "Last attempt failed with state FAILED."
+run_case command_failed 1 "⚠️ OCI apply command failed" "fake auth failure" "Last attempt failed with state COMMAND_FAILED."
 
 echo "Smoke tests passed."

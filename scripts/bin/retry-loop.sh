@@ -6,6 +6,7 @@ APP_HOME="${APP_HOME:-/app}"
 source "$APP_HOME/scripts/lib/config.sh"
 source "$APP_HOME/scripts/lib/logging.sh"
 source "$APP_HOME/scripts/lib/discord.sh"
+source "$APP_HOME/scripts/lib/job-log.sh"
 
 load_config
 init_logging
@@ -52,7 +53,7 @@ start_fields="$(
 )"
 
 log_info "OCI A1 retry started. run_id=$RUN_ID stack=$OCI_STACK_ID"
-send_or_exit "start" "OCI A1 retry started" 3447003 "The retry loop is active." "$start_fields" 0
+send_or_exit "start" "🔁 OCI A1 retry started" 3447003 "The retry loop is active." "$start_fields" 0
 
 while true; do
   summary_file="$RUN_DIR/attempts/attempt-$attempt/summary.json"
@@ -64,6 +65,7 @@ while true; do
   err_file="$(jq -r '.err_file' "$summary_file")"
   out_file="$(jq -r '.out_file' "$summary_file")"
   job_log_file="$(jq -r '.job_log_file' "$summary_file")"
+  normalized_job_log_file="$(jq -r '.normalized_job_log_file' "$summary_file")"
   attempt_dir="$(jq -r '.attempt_dir' "$summary_file")"
 
   next_retry="$RETRY_INTERVAL_SECONDS"
@@ -74,41 +76,43 @@ while true; do
   fields="$(common_fields_json "$attempt" "$state" "$job_id" "$(retry_label "$next_retry")" "$attempt_dir")"
 
   if [ "$command_exit_code" -ne 0 ]; then
-    detail="$(shorten_text "$(cat "$err_file")" "$JOB_LOG_TAIL_CHARS")"
-    fields="$(append_detail_field_json "$fields" "OCI CLI stderr" "$detail")"
-    log_error "OCI apply command failed. attempt=$attempt exit_code=$command_exit_code"
-    send_or_exit "command-failed" "OCI apply command failed" 15158332 "The OCI CLI command failed before a successful job result." "$fields" "$attempt"
-  elif [ "$state" = "SUCCEEDED" ]; then
-    detail=""
-    if [ -s "$job_log_file" ]; then
-      detail="$(shorten_text "$(tail -c "$JOB_LOG_TAIL_CHARS" "$job_log_file")" "$JOB_LOG_TAIL_CHARS")"
-      fields="$(append_detail_field_json "$fields" "OCI job log tail" "$detail")"
+    detail="$(extract_oci_error_message "$err_file")"
+    if [ -z "$detail" ]; then
+      detail="OCI CLI command failed."
     fi
-
+    log_error "OCI apply command failed. attempt=$attempt exit_code=$command_exit_code"
+    send_or_exit "command-failed" "⚠️ OCI apply command failed" 15158332 "$detail" "$fields" "$attempt" "@here"
+  elif [ "$state" = "SUCCEEDED" ]; then
     log_info "OCI Stack Apply succeeded. attempt=$attempt job_id=$job_id"
-    send_or_exit "success" "OCI Stack Apply succeeded" 3066993 "The instance creation retry loop is stopping." "$fields" "$attempt"
+    send_or_exit "success" "✅ OCI Stack Apply succeeded" 3066993 "Apply succeeded." "$fields" "$attempt" "@here"
     exit 0
   else
     detail=""
-    if [ -s "$job_log_file" ]; then
-      detail="$(shorten_text "$(tail -c "$JOB_LOG_TAIL_CHARS" "$job_log_file")" "$JOB_LOG_TAIL_CHARS")"
-      fields="$(append_detail_field_json "$fields" "OCI job log tail" "$detail")"
+    if [ -s "$normalized_job_log_file" ]; then
+      detail="$(job_log_summary_line "$normalized_job_log_file" "$JOB_LOG_TAIL_CHARS")"
     elif [ -s "$err_file" ]; then
-      detail="$(shorten_text "$(cat "$err_file")" "$JOB_LOG_TAIL_CHARS")"
-      fields="$(append_detail_field_json "$fields" "OCI CLI stderr" "$detail")"
+      detail="$(extract_oci_error_message "$err_file")"
+      if [ -z "$detail" ]; then
+        detail="OCI CLI stderr available."
+      fi
     elif [ -s "$out_file" ]; then
-      detail="$(shorten_text "$(cat "$out_file")" "$JOB_LOG_TAIL_CHARS")"
-      fields="$(append_detail_field_json "$fields" "OCI CLI output" "$detail")"
+      detail="$(job_log_summary_line "$out_file" "$JOB_LOG_TAIL_CHARS")"
+      if [ -z "$detail" ]; then
+        detail="OCI CLI output available."
+      fi
     fi
 
     log_warn "OCI Stack Apply did not succeed. attempt=$attempt state=$state job_id=$job_id"
-    send_or_exit "apply-failed" "OCI Stack Apply did not succeed" 15105570 "The retry loop will continue unless max attempts has been reached." "$fields" "$attempt"
+    if [ -z "$detail" ]; then
+      detail="OCI Stack Apply did not succeed."
+    fi
+    send_or_exit "apply-failed" "❌ OCI Stack Apply did not succeed" 15105570 "$detail" "$fields" "$attempt"
   fi
 
   if [ "$MAX_ATTEMPTS" -gt 0 ] && [ "$attempt" -ge "$MAX_ATTEMPTS" ]; then
     stop_fields="$(common_fields_json "$attempt" "$state" "$job_id" "none" "$RUN_DIR")"
     log_error "Max attempts reached. max_attempts=$MAX_ATTEMPTS"
-    send_or_exit "max-attempts-reached" "OCI A1 retry stopped" 10038562 "Max attempts reached before a successful apply." "$stop_fields" "$attempt"
+    send_or_exit "max-attempts-reached" "🛑 OCI A1 retry stopped" 10038562 "Last attempt failed with state $state." "$stop_fields" "$attempt" "@here"
     exit 1
   fi
 

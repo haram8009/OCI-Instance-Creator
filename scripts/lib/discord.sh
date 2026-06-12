@@ -53,6 +53,7 @@ send_discord_event() {
   local description="$4"
   local fields_json="$5"
   local attempt_number="${6:-0}"
+  local mention_content="${7:-}"
   local payload_file
   local payload
 
@@ -62,20 +63,40 @@ send_discord_event() {
       --arg username "$DISCORD_USERNAME" \
       --arg title "$title" \
       --arg description "$description" \
+      --arg content "$mention_content" \
       --argjson color "$color" \
       --argjson fields "$fields_json" \
-      '{
-        username: $username,
-        embeds: [
-          {
-            title: $title,
-            description: $description,
-            color: $color,
-            fields: $fields,
-            timestamp: (now | todateiso8601)
-          }
-        ]
-      }'
+      'if $content == "" then
+         {
+           username: $username,
+           embeds: [
+             {
+               title: $title,
+               description: $description,
+               color: $color,
+               fields: $fields,
+               timestamp: (now | todateiso8601)
+             }
+           ]
+         }
+       else
+         {
+           username: $username,
+           content: $content,
+           allowed_mentions: {
+             parse: ["everyone"]
+           },
+           embeds: [
+             {
+               title: $title,
+               description: $description,
+               color: $color,
+               fields: $fields,
+               timestamp: (now | todateiso8601)
+             }
+           ]
+         }
+       end'
   )"
 
   send_discord_payload "$payload" "$payload_file"

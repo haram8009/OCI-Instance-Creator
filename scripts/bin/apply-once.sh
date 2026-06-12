@@ -5,6 +5,7 @@ APP_HOME="${APP_HOME:-/app}"
 
 source "$APP_HOME/scripts/lib/config.sh"
 source "$APP_HOME/scripts/lib/logging.sh"
+source "$APP_HOME/scripts/lib/job-log.sh"
 
 load_config
 
@@ -14,6 +15,7 @@ SUMMARY_FILE="${APPLY_RESULT_FILE:-$ATTEMPT_DIR/summary.json}"
 OUT_FILE="$ATTEMPT_DIR/oci-create-apply-job.out.json"
 ERR_FILE="$ATTEMPT_DIR/oci-create-apply-job.err.log"
 JOB_LOG_FILE="$ATTEMPT_DIR/oci-job.log"
+NORMALIZED_JOB_LOG_FILE="$ATTEMPT_DIR/oci-job.normalized.log"
 
 mkdir -p "$ATTEMPT_DIR"
 
@@ -67,6 +69,10 @@ if [ "$JOB_LOG_FETCH_ENABLED" = "true" ] && [ "$JOB_ID" != "unknown" ]; then
   if ! oci "${LOG_ARGS[@]}" >"$JOB_LOG_FILE" 2>>"$ERR_FILE"; then
     log_warn "Could not fetch OCI job log. job_id=$JOB_ID"
   fi
+
+  if [ -s "$JOB_LOG_FILE" ]; then
+    normalize_job_log_file "$JOB_LOG_FILE" "$NORMALIZED_JOB_LOG_FILE"
+  fi
 fi
 
 jq -n \
@@ -79,6 +85,7 @@ jq -n \
   --arg outFile "$OUT_FILE" \
   --arg errFile "$ERR_FILE" \
   --arg jobLogFile "$JOB_LOG_FILE" \
+  --arg normalizedJobLogFile "$NORMALIZED_JOB_LOG_FILE" \
   --arg attemptDir "$ATTEMPT_DIR" \
   --argjson exitCode "$OCI_EXIT_CODE" \
   '{
@@ -92,6 +99,7 @@ jq -n \
     out_file: $outFile,
     err_file: $errFile,
     job_log_file: $jobLogFile,
+    normalized_job_log_file: $normalizedJobLogFile,
     attempt_dir: $attemptDir
   }' > "$SUMMARY_FILE"
 
