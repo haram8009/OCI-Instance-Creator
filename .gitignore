@@ -4,6 +4,10 @@ oci/*
 !oci/config.example
 logs/*
 !logs/.gitkeep
+control/*
+!control/.gitkeep
 .DS_Store
+__pycache__/
+*.pyc
 .idea/
 .vscode/

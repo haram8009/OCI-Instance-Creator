@@ -138,16 +138,45 @@ DISCORD_USERNAME=OCI A1 Retry
 DISCORD_DELIVERY_REQUIRED=true
 DISCORD_DELIVERY_ATTEMPTS=5
 DISCORD_DELIVERY_RETRY_SECONDS=5
+DISCORD_BOT_ENABLED=false
+DISCORD_BOT_TOKEN=
+DISCORD_GUILD_ID=
+DISCORD_ALLOWED_USER_IDS=
+DISCORD_ALLOWED_ROLE_IDS=
 RETRY_INTERVAL_SECONDS=1800
 MAX_WAIT_SECONDS=1800
 MAX_ATTEMPTS=0
 LOG_DIR=/app/logs
+LOG_CLEANUP_ENABLED=true
+LOG_RETENTION_RUNS=50
+LOG_RETENTION_DAYS=14
+CONTROL_DIR=/app/control
 JOB_LOG_FETCH_ENABLED=true
 JOB_LOG_TAIL_CHARS=900
 OCI_CLI_EXTRA_ARGS=
 ```
 
 `MAX_ATTEMPTS=0`은 무제한 재시도입니다. 테스트나 제한 실행이 필요하면 `MAX_ATTEMPTS=3`처럼 지정합니다.
+
+Discord에서 중지/재시작 명령을 쓰려면 Discord Developer Portal에서 bot을 만들고 서버에 초대한 뒤 아래 값을 설정합니다.
+
+```env
+DISCORD_BOT_ENABLED=true
+DISCORD_BOT_TOKEN=xxxxxxxxxxxxxxxx
+DISCORD_GUILD_ID=123456789012345678
+DISCORD_ALLOWED_USER_IDS=123456789012345678
+DISCORD_ALLOWED_ROLE_IDS=
+```
+
+`DISCORD_GUILD_ID`를 넣으면 slash command가 해당 서버에 빠르게 등록됩니다. 권한은 `DISCORD_ALLOWED_USER_IDS`, `DISCORD_ALLOWED_ROLE_IDS`, 또는 Discord 서버 관리자 권한 중 하나로 통과합니다.
+
+서버의 모든 사용자를 허용하려면 `@everyone` role ID를 `DISCORD_ALLOWED_ROLE_IDS`에 넣습니다. 보통 `@everyone` role ID는 서버 ID와 같습니다.
+
+```env
+DISCORD_GUILD_ID=123456789012345678
+DISCORD_ALLOWED_USER_IDS=
+DISCORD_ALLOWED_ROLE_IDS=123456789012345678
+```
 
 ### 6. 실행 전 Stack 설정 확인
 
@@ -181,7 +210,7 @@ docker compose up -d --build
 로그 확인:
 
 ```bash
-docker logs -f oci-a1-retry
+docker logs -f oci-instance-creator
 tail -f logs/latest.log
 ```
 
@@ -192,6 +221,16 @@ docker compose down
 ```
 
 성공하면 Discord로 성공 알림을 보내고 컨테이너가 종료됩니다.
+
+Discord bot을 켠 경우 아래 slash command를 사용할 수 있습니다.
+
+```text
+/status
+/stop
+/restart
+```
+
+`/restart`는 현재 run을 종료한 뒤 새 `RUN_ID`로 처음부터 다시 시작합니다. 기존 run 로그는 삭제하지 않습니다.
 
 ## 알림 동작
 
@@ -228,6 +267,18 @@ logs/
 Discord에 보낸 payload도 run별로 저장합니다. 전송 실패 payload는 `discord/unsent/` 아래에 보존합니다.
 
 Discord 알림에는 전체 job log를 그대로 넣지 않고 핵심 오류 요약만 넣습니다. 전체 원문은 `oci-job.log`, 줄바꿈을 정리한 로그는 `oci-job.normalized.log`에 보존합니다.
+
+로그 정리는 기본으로 켜져 있습니다.
+
+```env
+LOG_CLEANUP_ENABLED=true
+LOG_RETENTION_RUNS=50
+LOG_RETENTION_DAYS=14
+DOCKER_LOG_MAX_SIZE=10m
+DOCKER_LOG_MAX_FILE=3
+```
+
+`LOG_RETENTION_RUNS`는 현재 run 외에 보존할 과거 run 개수입니다. `LOG_RETENTION_DAYS`는 지정 일수보다 오래된 run 디렉터리를 삭제합니다. Docker stdout 로그는 `docker-compose.yml`의 `json-file` 로그 회전 설정으로 최대 크기와 파일 개수를 제한합니다.
 
 ## 검증
 
@@ -269,15 +320,18 @@ tests/smoke.sh
 역할:
 
 - `retry.sh`: 컨테이너 entrypoint입니다.
+- `scripts/bin/supervisor.sh`: Discord bot을 띄우고 retry loop의 stop/restart exit code를 처리합니다.
 - `scripts/bin/retry-loop.sh`: 재시도 횟수, 성공/실패 분기, Discord 알림 흐름을 담당합니다.
 - `scripts/bin/apply-once.sh`: OCI Resource Manager apply job을 한 번 실행하고 결과 JSON을 남깁니다.
+- `scripts/bin/discord-control-bot.py`: Discord slash command를 받아 control 파일에 중지/재시작 요청을 기록합니다.
 - `scripts/lib/discord.sh`: Discord embed payload 생성, 전송 재시도, 미전송 payload 보존을 담당합니다.
 - `scripts/lib/logging.sh`: 실행 로그와 run별 로그 디렉터리를 관리합니다.
+- `scripts/lib/control.sh`: stop/restart 명령과 status 파일을 관리합니다.
 - `scripts/lib/config.sh`: 환경 변수 기본값과 검증을 담당합니다.
 
 ## 보안 주의
 
-- `.env`에는 Discord Webhook URL이 들어가므로 공개 저장소에 올리면 안 됩니다.
+- `.env`에는 Discord Webhook URL과 bot token이 들어갈 수 있으므로 공개 저장소에 올리면 안 됩니다.
 - `oci/config`와 API private key도 공개 저장소에 올리면 안 됩니다.
 - 이 프로젝트의 `.gitignore`는 `.env`, `oci/config`, `oci/*.pem`, `logs/*`가 커밋되지 않도록 설정되어 있습니다.
 - Apply는 실제 리소스를 생성하거나 변경합니다. Stack 안에 유료 리소스가 포함되어 있으면 실제 과금될 수 있습니다.

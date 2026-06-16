@@ -7,8 +7,10 @@ source "$APP_HOME/scripts/lib/config.sh"
 source "$APP_HOME/scripts/lib/logging.sh"
 source "$APP_HOME/scripts/lib/discord.sh"
 source "$APP_HOME/scripts/lib/job-log.sh"
+source "$APP_HOME/scripts/lib/control.sh"
 
 load_config
+init_control
 init_logging
 
 send_or_exit() {
@@ -53,10 +55,13 @@ start_fields="$(
 )"
 
 log_info "OCI A1 retry started. run_id=$RUN_ID stack=$OCI_STACK_ID"
+write_status "started" 0 "STARTED" "unknown" "${RETRY_INTERVAL_SECONDS}s"
 send_or_exit "start" "🔁 OCI A1 retry started" 3447003 "The retry loop is active." "$start_fields" 0
 
 while true; do
+  handle_control_command
   summary_file="$RUN_DIR/attempts/attempt-$attempt/summary.json"
+  write_status "attempt-running" "$attempt" "RUNNING" "unknown" "unknown"
   APPLY_RESULT_FILE="$summary_file" ATTEMPT_NUMBER="$attempt" "$APP_HOME/scripts/bin/apply-once.sh" >/dev/null
 
   command_exit_code="$(jq -r '.command_exit_code' "$summary_file")"
@@ -74,6 +79,8 @@ while true; do
   fi
 
   fields="$(common_fields_json "$attempt" "$state" "$job_id" "$(retry_label "$next_retry")" "$attempt_dir")"
+  write_status "attempt-finished" "$attempt" "$state" "$job_id" "$(retry_label "$next_retry")"
+  handle_control_command
 
   if [ "$command_exit_code" -ne 0 ]; then
     detail="$(extract_oci_error_message "$err_file")"
@@ -84,6 +91,7 @@ while true; do
     send_or_exit "command-failed" "⚠️ OCI apply command failed" 15158332 "$detail" "$fields" "$attempt" "@here"
   elif [ "$state" = "SUCCEEDED" ]; then
     log_info "OCI Stack Apply succeeded. attempt=$attempt job_id=$job_id"
+    write_status "succeeded" "$attempt" "$state" "$job_id" "none"
     send_or_exit "success" "✅ OCI Stack Apply succeeded" 3066993 "Apply succeeded." "$fields" "$attempt" "@here"
     exit 0
   else
@@ -112,11 +120,13 @@ while true; do
   if [ "$MAX_ATTEMPTS" -gt 0 ] && [ "$attempt" -ge "$MAX_ATTEMPTS" ]; then
     stop_fields="$(common_fields_json "$attempt" "$state" "$job_id" "none" "$RUN_DIR")"
     log_error "Max attempts reached. max_attempts=$MAX_ATTEMPTS"
+    write_status "max-attempts-reached" "$attempt" "$state" "$job_id" "none"
     send_or_exit "max-attempts-reached" "🛑 OCI A1 retry stopped" 10038562 "Last attempt failed with state $state." "$stop_fields" "$attempt" "@here"
     exit 1
   fi
 
   attempt=$((attempt + 1))
   log_info "Sleeping before next retry. seconds=$RETRY_INTERVAL_SECONDS next_attempt=$attempt"
-  sleep "$RETRY_INTERVAL_SECONDS"
+  write_status "sleeping" "$((attempt - 1))" "$state" "$job_id" "${RETRY_INTERVAL_SECONDS}s"
+  sleep_with_control "$RETRY_INTERVAL_SECONDS"
 done

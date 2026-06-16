@@ -7,13 +7,15 @@ RUN apt-get update \
         jq \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir oci-cli==3.86.0
+RUN pip install --no-cache-dir \
+    oci-cli==3.86.0 \
+    'discord.py>=2.4,<3'
 
 WORKDIR /app
 
 COPY retry.sh /app/retry.sh
 COPY scripts /app/scripts
 
-RUN chmod +x /app/retry.sh /app/scripts/bin/*.sh
+RUN chmod +x /app/retry.sh /app/scripts/bin/*.sh /app/scripts/bin/*.py
 
 CMD ["/app/retry.sh"]

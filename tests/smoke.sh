@@ -98,6 +98,7 @@ run_case() {
     MAX_WAIT_SECONDS="1" \
     MAX_ATTEMPTS="1" \
     LOG_DIR="$case_dir/logs" \
+    CONTROL_DIR="$case_dir/control" \
     RUN_ID="test-$scenario" \
     FAKE_OCI_SCENARIO="$scenario" \
     JOB_LOG_FETCH_ENABLED="true" \
@@ -153,10 +154,64 @@ run_case() {
     echo "Missing preserved retry log for $scenario" >&2
     return 1
   fi
+
+  if [ ! -s "$case_dir/control/status.json" ]; then
+    echo "Missing status file for $scenario" >&2
+    return 1
+  fi
+}
+
+run_log_cleanup_case() {
+  local case_dir="$TMP_DIR/log-cleanup"
+
+  mkdir -p "$case_dir/logs/runs/old-1" "$case_dir/logs/runs/old-2" "$case_dir/logs/runs/old-3" "$case_dir/discord"
+  touch "$case_dir/logs/runs/old-1/retry.log"
+  touch "$case_dir/logs/runs/old-1"
+  sleep 1
+  touch "$case_dir/logs/runs/old-2/retry.log"
+  touch "$case_dir/logs/runs/old-2"
+  sleep 1
+  touch "$case_dir/logs/runs/old-3/retry.log"
+  touch "$case_dir/logs/runs/old-3"
+
+  set +e
+  TEST_CAPTURE_DIR="$case_dir/discord" \
+    PATH="$FAKE_BIN:$PATH" \
+    APP_HOME="$ROOT_DIR" \
+    OCI_STACK_ID="ocid1.ormstack.oc1.ap-osaka-1.test" \
+    OCI_CONFIG_PROFILE="DEFAULT" \
+    DISCORD_WEBHOOK_URL="https://discord.example/webhook" \
+    DISCORD_DELIVERY_ATTEMPTS="1" \
+    DISCORD_DELIVERY_RETRY_SECONDS="0" \
+    RETRY_INTERVAL_SECONDS="0" \
+    MAX_WAIT_SECONDS="1" \
+    MAX_ATTEMPTS="1" \
+    LOG_DIR="$case_dir/logs" \
+    LOG_RETENTION_RUNS="1" \
+    LOG_RETENTION_DAYS="0" \
+    CONTROL_DIR="$case_dir/control" \
+    RUN_ID="test-log-cleanup" \
+    FAKE_OCI_SCENARIO="success" \
+    JOB_LOG_FETCH_ENABLED="true" \
+    "$ROOT_DIR/scripts/bin/retry-loop.sh"
+  actual_exit=$?
+  set -e
+
+  if [ "$actual_exit" -ne 0 ]; then
+    echo "Expected log cleanup case to succeed, got $actual_exit" >&2
+    return 1
+  fi
+
+  remaining_old_runs="$(find "$case_dir/logs/runs" -maxdepth 1 -type d -name 'old-*' | wc -l | tr -d ' ')"
+  if [ "$remaining_old_runs" -gt 1 ]; then
+    echo "Expected log cleanup to keep at most one old run, kept $remaining_old_runs" >&2
+    return 1
+  fi
 }
 
 run_case success 0 "✅ OCI Stack Apply succeeded" "Apply succeeded."
 run_case failed 1 "❌ OCI Stack Apply did not succeed" "Error: Out of host capacity." "Last attempt failed with state FAILED."
 run_case command_failed 1 "⚠️ OCI apply command failed" "fake auth failure" "Last attempt failed with state COMMAND_FAILED."
+run_log_cleanup_case
 
 echo "Smoke tests passed."
