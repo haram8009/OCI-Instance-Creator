@@ -51,9 +51,19 @@ handle_control_command() {
 
   command="$(control_command)"
   case "$command" in
+    pause)
+      log_warn "Pause requested through control command."
+      write_status "paused" "${attempt:-0}" "PAUSED" "${job_id:-unknown}" "paused"
+      wait_until_resumed
+      ;;
+    resume)
+      log_warn "Resume requested through control command."
+      clear_control_command
+      write_status "running" "${attempt:-0}" "RESUMED" "${job_id:-unknown}" "unknown"
+      ;;
     stop)
       log_warn "Stop requested through control command."
-      write_status "stopping" "${attempt:-0}" "STOP_REQUESTED" "unknown" "none"
+      write_status "stopped" "${attempt:-0}" "STOPPED" "${job_id:-unknown}" "none"
       exit 75
       ;;
     restart)
@@ -61,7 +71,45 @@ handle_control_command() {
       write_status "restarting" "${attempt:-0}" "RESTART_REQUESTED" "unknown" "none"
       exit 76
       ;;
+    shutdown)
+      log_warn "Shutdown requested through control command."
+      write_status "shutting-down" "${attempt:-0}" "SHUTDOWN_REQUESTED" "${job_id:-unknown}" "none"
+      exit 77
+      ;;
   esac
+}
+
+wait_until_resumed() {
+  local command
+
+  while true; do
+    command="$(control_command)"
+    case "$command" in
+      resume)
+        log_warn "Resume requested through control command."
+        clear_control_command
+        write_status "running" "${attempt:-0}" "RESUMED" "${job_id:-unknown}" "unknown"
+        return 0
+        ;;
+      stop)
+        log_warn "Stop requested through control command while paused."
+        write_status "stopped" "${attempt:-0}" "STOPPED" "${job_id:-unknown}" "none"
+        exit 75
+        ;;
+      restart)
+        log_warn "Restart requested through control command while paused."
+        write_status "restarting" "${attempt:-0}" "RESTART_REQUESTED" "unknown" "none"
+        exit 76
+        ;;
+      shutdown)
+        log_warn "Shutdown requested through control command while paused."
+        write_status "shutting-down" "${attempt:-0}" "SHUTDOWN_REQUESTED" "${job_id:-unknown}" "none"
+        exit 77
+        ;;
+    esac
+
+    sleep 5
+  done
 }
 
 sleep_with_control() {

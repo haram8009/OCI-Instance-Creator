@@ -209,9 +209,142 @@ run_log_cleanup_case() {
   fi
 }
 
+run_control_pause_resume_case() {
+  local case_dir="$TMP_DIR/control-pause-resume"
+
+  mkdir -p "$case_dir/control" "$case_dir/logs"
+  jq -n '{command: "pause"}' > "$case_dir/control/command.json"
+
+  (
+    PATH="$FAKE_BIN:$PATH"
+    APP_HOME="$ROOT_DIR"
+    OCI_STACK_ID="ocid1.ormstack.oc1.ap-osaka-1.test"
+    DISCORD_WEBHOOK_URL="https://discord.example/webhook"
+    CONTROL_DIR="$case_dir/control"
+    LOG_DIR="$case_dir/logs"
+    RUN_ID="test-control-pause-resume"
+    source "$ROOT_DIR/scripts/lib/config.sh"
+    source "$ROOT_DIR/scripts/lib/control.sh"
+
+    log_warn() {
+      :
+    }
+
+    load_config
+    init_control
+    attempt=2
+
+    (
+      /bin/sleep 0.2
+      jq -n '{command: "resume"}' > "$case_dir/control/command.json"
+    ) &
+    resume_pid="$!"
+
+    handle_control_command
+    wait "$resume_pid"
+  )
+
+  if [ -e "$case_dir/control/command.json" ]; then
+    echo "Expected resume to clear pause command" >&2
+    return 1
+  fi
+
+  if ! jq -e '.phase == "running" and .state == "RESUMED"' "$case_dir/control/status.json" >/dev/null; then
+    echo "Expected pause/resume status to end as RESUMED" >&2
+    return 1
+  fi
+}
+
+run_control_stop_case() {
+  local case_dir="$TMP_DIR/control-stop"
+  local actual_exit
+
+  mkdir -p "$case_dir/control" "$case_dir/logs"
+  jq -n '{command: "stop"}' > "$case_dir/control/command.json"
+
+  set +e
+  (
+    PATH="$FAKE_BIN:$PATH"
+    APP_HOME="$ROOT_DIR"
+    OCI_STACK_ID="ocid1.ormstack.oc1.ap-osaka-1.test"
+    DISCORD_WEBHOOK_URL="https://discord.example/webhook"
+    CONTROL_DIR="$case_dir/control"
+    LOG_DIR="$case_dir/logs"
+    RUN_ID="test-control-stop"
+    source "$ROOT_DIR/scripts/lib/config.sh"
+    source "$ROOT_DIR/scripts/lib/control.sh"
+
+    log_warn() {
+      :
+    }
+
+    load_config
+    init_control
+    attempt=2
+    handle_control_command
+  )
+  actual_exit=$?
+  set -e
+
+  if [ "$actual_exit" -ne 75 ]; then
+    echo "Expected stop control to exit 75, got $actual_exit" >&2
+    return 1
+  fi
+
+  if ! jq -e '.phase == "stopped" and .state == "STOPPED"' "$case_dir/control/status.json" >/dev/null; then
+    echo "Expected stop control to write STOPPED status" >&2
+    return 1
+  fi
+}
+
+run_control_shutdown_case() {
+  local case_dir="$TMP_DIR/control-shutdown"
+  local actual_exit
+
+  mkdir -p "$case_dir/control" "$case_dir/logs"
+  jq -n '{command: "shutdown"}' > "$case_dir/control/command.json"
+
+  set +e
+  (
+    PATH="$FAKE_BIN:$PATH"
+    APP_HOME="$ROOT_DIR"
+    OCI_STACK_ID="ocid1.ormstack.oc1.ap-osaka-1.test"
+    DISCORD_WEBHOOK_URL="https://discord.example/webhook"
+    CONTROL_DIR="$case_dir/control"
+    LOG_DIR="$case_dir/logs"
+    RUN_ID="test-control-shutdown"
+    source "$ROOT_DIR/scripts/lib/config.sh"
+    source "$ROOT_DIR/scripts/lib/control.sh"
+
+    log_warn() {
+      :
+    }
+
+    load_config
+    init_control
+    attempt=2
+    handle_control_command
+  )
+  actual_exit=$?
+  set -e
+
+  if [ "$actual_exit" -ne 77 ]; then
+    echo "Expected shutdown control to exit 77, got $actual_exit" >&2
+    return 1
+  fi
+
+  if ! jq -e '.phase == "shutting-down" and .state == "SHUTDOWN_REQUESTED"' "$case_dir/control/status.json" >/dev/null; then
+    echo "Expected shutdown control to write SHUTDOWN_REQUESTED status" >&2
+    return 1
+  fi
+}
+
 run_case success 0 "✅ OCI Stack Apply succeeded" "Apply succeeded."
 run_case failed 1 "❌ OCI Stack Apply did not succeed" "Error: Out of host capacity." "Last attempt failed with state FAILED."
 run_case command_failed 1 "⚠️ OCI apply command failed" "fake auth failure" "Last attempt failed with state COMMAND_FAILED."
 run_log_cleanup_case
+run_control_pause_resume_case
+run_control_stop_case
+run_control_shutdown_case
 
 echo "Smoke tests passed."

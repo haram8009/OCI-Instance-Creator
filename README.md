@@ -226,11 +226,23 @@ Discord bot을 켠 경우 아래 slash command를 사용할 수 있습니다.
 
 ```text
 /status
+/pause
+/resume
 /stop
 /restart
+/shutdown
 ```
 
-`/restart`는 현재 run을 종료한 뒤 새 `RUN_ID`로 처음부터 다시 시작합니다. 기존 run 로그는 삭제하지 않습니다.
+각 명령의 의미:
+
+- `/status`: 현재 run 상태, attempt 번호, job ID, 다음 retry 예정, pending command를 확인합니다.
+- `/pause`: 현재 실행 중인 attempt는 건드리지 않고, attempt가 끝난 뒤 다음 retry를 시작하지 않은 채 대기합니다.
+- `/resume`: pause 상태에서 같은 run을 이어서 진행합니다.
+- `/stop`: 현재 run을 종료합니다. Discord bot과 supervisor는 살아 있으므로 이후 `/restart`를 받을 수 있습니다.
+- `/restart`: 현재 run을 종료한 뒤 새 `RUN_ID`로 처음부터 다시 시작합니다. 기존 run 로그는 삭제하지 않습니다.
+- `/shutdown`: retry worker와 Discord control bot까지 종료합니다. 이 명령 뒤에는 Discord에서 `/restart`를 받을 수 없고, Docker로 컨테이너를 다시 올려야 합니다.
+
+실사용 기준으로는 `/pause`는 “잠깐 보류”, `/stop`은 “이번 run은 여기서 종료”, `/restart`는 “새 기준으로 다시 시작”, `/shutdown`은 “Discord 제어까지 종료”입니다.
 
 ## 알림 동작
 
@@ -240,6 +252,9 @@ Discord bot을 켠 경우 아래 slash command를 사용할 수 있습니다.
 - Apply job이 `FAILED`, `CANCELED`, 또는 알 수 없는 상태면 실패 알림을 보내고 재시도합니다.
 - OCI CLI 명령 자체가 실패해도 실패 알림을 보내고 재시도합니다.
 - `MAX_ATTEMPTS`에 도달하면 최종 중단 알림을 보내고 종료합니다.
+- `/pause`는 현재 attempt를 취소하지 않습니다. OCI apply job이 끝난 뒤 다음 retry 직전에 멈춥니다.
+- `/stop`은 retry run만 종료하고 Discord 제어는 유지합니다.
+- `/shutdown`은 Discord 제어까지 종료합니다.
 - Discord 전송 실패는 기본적으로 조용히 넘기지 않습니다. 여러 번 재시도 후에도 실패하면 payload를 로그에 남기고 프로세스를 실패시킵니다.
 
 ## 로그 보존
@@ -294,6 +309,8 @@ tests/smoke.sh
 - Resource Manager apply 실패 알림
 - OCI CLI 명령 실패 알림
 - 로그 파일 보존
+- pause/resume 제어 상태
+- stop/shutdown 제어 상태
 
 ## 구조
 
@@ -320,13 +337,13 @@ tests/smoke.sh
 역할:
 
 - `retry.sh`: 컨테이너 entrypoint입니다.
-- `scripts/bin/supervisor.sh`: Discord bot을 띄우고 retry loop의 stop/restart exit code를 처리합니다.
+- `scripts/bin/supervisor.sh`: Discord bot을 띄우고 retry loop의 stop/restart/shutdown exit code를 처리합니다.
 - `scripts/bin/retry-loop.sh`: 재시도 횟수, 성공/실패 분기, Discord 알림 흐름을 담당합니다.
 - `scripts/bin/apply-once.sh`: OCI Resource Manager apply job을 한 번 실행하고 결과 JSON을 남깁니다.
-- `scripts/bin/discord-control-bot.py`: Discord slash command를 받아 control 파일에 중지/재시작 요청을 기록합니다.
+- `scripts/bin/discord-control-bot.py`: Discord slash command를 받아 control 파일에 pause/resume/stop/restart/shutdown 요청을 기록합니다.
 - `scripts/lib/discord.sh`: Discord embed payload 생성, 전송 재시도, 미전송 payload 보존을 담당합니다.
 - `scripts/lib/logging.sh`: 실행 로그와 run별 로그 디렉터리를 관리합니다.
-- `scripts/lib/control.sh`: stop/restart 명령과 status 파일을 관리합니다.
+- `scripts/lib/control.sh`: pause/resume/stop/restart/shutdown 명령과 status 파일을 관리합니다.
 - `scripts/lib/config.sh`: 환경 변수 기본값과 검증을 담당합니다.
 
 ## 보안 주의

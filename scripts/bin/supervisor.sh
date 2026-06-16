@@ -37,6 +37,26 @@ start_bot() {
   echo "Discord control bot started. pid=$bot_pid"
 }
 
+wait_for_stopped_command() {
+  local command
+
+  while true; do
+    command="$(control_command)"
+    case "$command" in
+      restart)
+        echo "Restart requested while stopped."
+        return 0
+        ;;
+      shutdown)
+        echo "Shutdown requested while stopped."
+        exit 0
+        ;;
+    esac
+
+    sleep 5
+  done
+}
+
 trap shutdown INT TERM
 
 start_bot
@@ -56,12 +76,17 @@ while true; do
 
   case "$exit_code" in
     75)
-      echo "Retry loop stopped by control command."
-      exit 0
+      echo "Retry loop stopped by control command. Waiting for restart or shutdown."
+      wait_for_stopped_command
+      sleep 1
       ;;
     76)
       echo "Retry loop restarting by control command."
       sleep 1
+      ;;
+    77)
+      echo "Retry worker shutting down by control command."
+      exit 0
       ;;
     *)
       exit "$exit_code"
